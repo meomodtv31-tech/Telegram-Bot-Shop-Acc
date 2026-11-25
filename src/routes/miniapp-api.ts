@@ -446,7 +446,7 @@ miniAppApi.post('/deposits', async (c) => {
 
   // Dựng VietQR URL (Req 8.4) — addInfo = transfer_code để SePay đối soát.
   const qrUrl = generateVietQRUrl({
-    bankId: bank.bankName,
+    bankId: bank.bankBin,
     accountNo: bank.bankAccount,
     accountName: bank.bankOwner,
     amount,
