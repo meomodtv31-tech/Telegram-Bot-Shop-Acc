@@ -17,6 +17,7 @@ const configSuccess = ref('')
 const form = ref({
   shop_name: '',
   bank_name: '',
+  bank_bin: '',
   bank_account: '',
   bank_owner: '',
   bot_token: '',
@@ -41,6 +42,7 @@ async function loadConfig() {
       const c = res.data.configs
       form.value.shop_name = c.shop_name ?? ''
       form.value.bank_name = c.bank_name ?? ''
+      form.value.bank_bin = c.bank_bin ?? ''
       form.value.bank_account = c.bank_account ?? ''
       form.value.bank_owner = c.bank_owner ?? ''
       form.value.bot_token = c.bot_token ?? ''
@@ -149,6 +151,23 @@ function renderRevenueChart() {
 
 function formatCurrency(n: number) { return n.toLocaleString('vi-VN') + 'đ' }
 
+// QR xem trước chỉ dùng dữ liệu mẫu, không tạo giao dịch thật.
+const qrPreviewUrl = ref('')
+function updateQrPreview() {
+  if (!/^\\d{6}$/.test(form.value.bank_bin.trim()) || !form.value.bank_account.trim()) {
+    qrPreviewUrl.value = ''
+    return
+  }
+  const query = new URLSearchParams({
+    amount: '100000',
+    addInfo: 'XEM-TRUOC',
+    accountName: form.value.bank_owner.trim(),
+  })
+  qrPreviewUrl.value = 'https://img.vietqr.io/image/' + form.value.bank_bin.trim() + '-' + encodeURIComponent(form.value.bank_account.trim()) + '-compact.png?' + query.toString()
+}
+
+watch(() => [form.value.bank_bin, form.value.bank_account, form.value.bank_owner], updateQrPreview, { immediate: true })
+
 watch(activeTab, tab => { if (tab === 'reports' && revenueData.value.length === 0) loadReports() })
 onMounted(() => { loadConfig(); initDateRange() })
 onUnmounted(() => { if (revenueChart) { revenueChart.destroy(); revenueChart = null } })
@@ -243,8 +262,19 @@ onUnmounted(() => { if (revenueChart) { revenueChart.destroy(); revenueChart = n
         <section class="card p-5 space-y-4">
           <h3 class="section-head"><Icon name="bank" :size="18" /> Thông tin ngân hàng</h3>
           <div><label class="label">Tên ngân hàng</label><input v-model="form.bank_name" class="field" placeholder="Vietcombank" /></div>
+          <div>
+            <label class="label">Mã BIN ngân hàng (6 chữ số)</label>
+            <input v-model="form.bank_bin" class="field" inputmode="numeric" maxlength="6" placeholder="Ví dụ: 970436" />
+            <p class="hint">Nhập mã BIN VietQR gồm 6 chữ số, không nhập tên ngân hàng vào ô này.</p>
+          </div>
           <div><label class="label">Số tài khoản</label><input v-model="form.bank_account" class="field" placeholder="1017588888" /></div>
           <div><label class="label">Chủ tài khoản</label><input v-model="form.bank_owner" class="field" placeholder="NGUYEN VAN A" /></div>
+          <div v-if="qrPreviewUrl" class="rounded-lg border p-4 text-center" style="border-color: var(--border)">
+            <p class="label mb-2">Xem trước VietQR (mẫu 100.000đ)</p>
+            <img :src="qrPreviewUrl" alt="Mã QR VietQR xem trước" class="mx-auto" style="width: 220px; max-width: 100%" />
+            <p class="hint">Đây chỉ là mã xem trước, nội dung chuyển khoản mẫu XEM-TRUOC.</p>
+          </div>
+          <p v-else class="hint">Nhập BIN 6 chữ số và số tài khoản để hiện QR xem trước.</p>
         </section>
 
         <!-- SePay -->
