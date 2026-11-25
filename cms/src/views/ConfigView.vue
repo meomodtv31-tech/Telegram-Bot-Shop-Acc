@@ -263,7 +263,7 @@ onUnmounted(() => { if (revenueChart) { revenueChart.destroy(); revenueChart = n
           <h3 class="section-head"><Icon name="bank" :size="18" /> Thông tin ngân hàng</h3>
           <div><label class="label">Tên ngân hàng</label><input v-model="form.bank_name" class="field" placeholder="Vietcombank" /></div>
           <div>
-            <label class="label">Mã BIN ngân hàng (6 chữ số)</label>
+            <label class="label">Mã BIN 970416 (6 chữ số)</label>
             <input v-model="form.bank_bin" class="field" inputmode="numeric" maxlength="6" placeholder="Ví dụ: 970436" />
             <p class="hint">Nhập mã BIN VietQR gồm 6 chữ số, không nhập tên ngân hàng vào ô này.</p>
           </div>
