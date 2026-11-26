@@ -17,6 +17,7 @@ const configSuccess = ref('')
 const form = ref({
   shop_name: '',
   bank_name: '',
+  bank_bin: '970416',
   bank_account: '',
   bank_owner: '',
   bot_token: '',
@@ -41,6 +42,7 @@ async function loadConfig() {
       const c = res.data.configs
       form.value.shop_name = c.shop_name ?? ''
       form.value.bank_name = c.bank_name ?? ''
+      form.value.bank_bin = c.bank_bin ?? '970416'
       form.value.bank_account = c.bank_account ?? ''
       form.value.bank_owner = c.bank_owner ?? ''
       form.value.bot_token = c.bot_token ?? ''
@@ -242,7 +244,8 @@ onUnmounted(() => { if (revenueChart) { revenueChart.destroy(); revenueChart = n
         <!-- Bank -->
         <section class="card p-5 space-y-4">
           <h3 class="section-head"><Icon name="bank" :size="18" /> Thông tin ngân hàng</h3>
-          <div><label class="label">Tên ngân hàng</label><input v-model="form.bank_name" class="field" placeholder="Vietcombank" /></div>
+          <div><label class="label">Tên ngân hàng</label><input v-model="form.bank_name" class="field" placeholder="ACB" /></div>
+          <div><label class="label">Mã BIN ngân hàng</label><input v-model="form.bank_bin" class="field" inputmode="numeric" maxlength="6" placeholder="970416" /><p class="hint">ACB: 970416 — dùng để tạo mã QR VietQR</p></div>
           <div><label class="label">Số tài khoản</label><input v-model="form.bank_account" class="field" placeholder="1017588888" /></div>
           <div><label class="label">Chủ tài khoản</label><input v-model="form.bank_owner" class="field" placeholder="NGUYEN VAN A" /></div>
         </section>
