@@ -19,10 +19,11 @@ export interface BankConfig {
   bankName: string
   bankAccount: string
   bankOwner: string
+  bankBin: string
 }
 
 /** Các key `system_config` lưu thông tin ngân hàng (do CMS ghi). */
-const BANK_CONFIG_KEYS = ['bank_name', 'bank_account', 'bank_owner'] as const
+const BANK_CONFIG_KEYS = ['bank_name', 'bank_bin', 'bank_account', 'bank_owner'] as const
 
 /**
  * Resolve thông tin ngân hàng nhận tiền: đọc `system_config` rồi fallback env Worker.
@@ -34,6 +35,7 @@ export async function resolveBankConfig(db: D1Database, env: Bindings): Promise<
 
   return {
     bankName: preferDbValue(byKey.get('bank_name'), env.BANK_NAME),
+    bankBin: preferDbValue(byKey.get('bank_bin'), env.BANK_BIN),
     bankAccount: preferDbValue(byKey.get('bank_account'), env.BANK_ACCOUNT),
     bankOwner: preferDbValue(byKey.get('bank_owner'), env.BANK_OWNER),
   }

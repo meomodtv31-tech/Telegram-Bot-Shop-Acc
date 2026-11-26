@@ -19,6 +19,8 @@ export type Bindings = {
   ADMIN_SETUP_SECRET: string
   /** Tên ngân hàng nhận thanh toán */
   BANK_NAME: string
+  /** Mã BIN ngân hàng nhận thanh toán (VietQR) */
+  BANK_BIN: string
   /** Số tài khoản ngân hàng nhận thanh toán */
   BANK_ACCOUNT: string
   /** Tên chủ tài khoản ngân hàng */

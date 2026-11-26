@@ -42,6 +42,7 @@ configRoutes.get('/', async (c) => {
   // và admin có thể lưu lại (promote env -> DB). Khớp logic resolve ở runtime.
   const envFallback: Record<string, string | undefined> = {
     bank_name: c.env.BANK_NAME,
+    bank_bin: c.env.BANK_BIN,
     bank_account: c.env.BANK_ACCOUNT,
     bank_owner: c.env.BANK_OWNER,
     bot_token: c.env.BOT_TOKEN,
