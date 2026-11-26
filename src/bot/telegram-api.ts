@@ -112,11 +112,19 @@ export async function sendPhoto(
   photo: string,
   options?: SendPhotoOptions
 ): Promise<TelegramApiResponse> {
-  return callTelegramApi(botToken, 'sendPhoto', {
+  const result = await callTelegramApi(botToken, 'sendPhoto', {
     chat_id: chatId,
     photo,
     ...options,
   })
+
+  if (!result.ok) {
+    throw new Error(
+      `Telegram sendPhoto failed: ${result.description ?? 'Unknown error'}`
+    )
+  }
+
+  return result
 }
 
 /**
