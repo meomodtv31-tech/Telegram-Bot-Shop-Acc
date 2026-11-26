@@ -132,6 +132,18 @@ export async function handleDepositAmount(
     return
   }
 
+  // Đọc và kiểm tra cấu hình ngân hàng TRƯỚC khi tạo giao dịch,
+  // tránh tạo deposit pending với QR thiếu BIN/số tài khoản/chủ tài khoản.
+  const bank = await resolveBankConfig(db, env)
+  if (!/^\d{6}$/.test(bank.bankBin.trim()) || !bank.bankAccount.trim() || !bank.bankOwner.trim() || !bank.bankName.trim()) {
+    await sendMessage(
+      botToken,
+      chatId,
+      '⚠️ Thông tin ngân hàng nhận tiền chưa được cấu hình đầy đủ. Vui lòng thử lại sau hoặc liên hệ quản trị viên cửa hàng.',
+    )
+    return
+  }
+
   // Lấy messageId của menu mệnh giá (nếu có) để ẩn nút sau khi tạo QR.
   const menuMessageId = getSession(userId)?.data?.menuMessageId as number | undefined
 
@@ -163,9 +175,6 @@ export async function handleDepositAmount(
     )
   }
 
-  // Thông tin ngân hàng: DB (system_config) ưu tiên, fallback env Worker.
-  const bank = await resolveBankConfig(db, env)
-
   // Generate VietQR URL
   const qrUrl = generateVietQRUrl({
     bankId: bank.bankBin,
@@ -175,16 +184,24 @@ export async function handleDepositAmount(
     description: transferCode,
   })
 
-  // Send QR code image
-  await sendPhoto(botToken, chatId, qrUrl, {
-    caption: '📱 Quét mã QR để chuyển khoản',
-    parse_mode: 'HTML',
-  })
+  // Send QR code image. Nếu Telegram/VietQR lỗi, vẫn gửi thông tin chuyển khoản
+  // để người dùng không bị kẹt ở giao dịch đã tạo.
+  let qrSent = true
+  try {
+    const photoResult = await sendPhoto(botToken, chatId, qrUrl, {
+      caption: '📱 Quét mã QR để chuyển khoản',
+      parse_mode: 'HTML',
+    })
+    qrSent = photoResult.ok
+  } catch {
+    qrSent = false
+  }
 
   // Send transfer details
   const detailText = [
     '💸 <b>Thông tin chuyển khoản</b>',
     '',
+    ...(qrSent ? [] : ['⚠️ Không tải được ảnh QR. Bạn có thể chuyển khoản thủ công theo thông tin bên dưới.']),
     `🏦 Ngân hàng: <b>${escapeHtml(bank.bankName)}</b>`,
     `💳 Số TK: <code>${escapeHtml(bank.bankAccount)}</code>`,
     `👤 Chủ TK: <b>${escapeHtml(bank.bankOwner)}</b>`,
