@@ -168,7 +168,7 @@ export async function handleDepositAmount(
 
   // Generate VietQR URL
   const qrUrl = generateVietQRUrl({
-    bankId: bank.bankName,
+    bankId: bank.bankBin,
     accountNo: bank.bankAccount,
     accountName: bank.bankOwner,
     amount,
