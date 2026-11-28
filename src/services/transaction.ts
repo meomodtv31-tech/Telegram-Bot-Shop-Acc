@@ -16,8 +16,6 @@ export interface DepositResult {
 export class TransactionService {
   /**
    * Atomic purchase: check balance → deduct → mark products sold → create order + order_items + transaction.
-   * Two-phase: insert order first (to get id), then batch the rest atomically.
-   * Concurrency guard: balance UPDATE has WHERE balance >= totalAmount.
    */
   async executePurchase(
     db: D1Database,
@@ -29,7 +27,6 @@ export class TransactionService {
     const totalAmount = quantity * unitPrice
     const now = new Date().toISOString()
 
-    // 1. Query user balance and available products
     const [userResult, productsResult] = await Promise.all([
       db.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first<DbUser>(),
       db
@@ -44,7 +41,6 @@ export class TransactionService {
       return { success: false, error: 'db_error' }
     }
 
-    // 2. Pre-checks
     if (userResult.balance < totalAmount) {
       return { success: false, error: 'insufficient_balance' }
     }
@@ -57,7 +53,6 @@ export class TransactionService {
     const balanceBefore = userResult.balance
     const balanceAfter = balanceBefore - totalAmount
 
-    // 3. Phase 1: INSERT order first to get orderId
     let orderId: number
     try {
       const orderInsert = await db
@@ -66,25 +61,24 @@ export class TransactionService {
         )
         .bind(userId, categoryId, quantity, totalAmount, 'completed', now)
         .first<{ id: number }>()
+
       if (!orderInsert) {
         return { success: false, error: 'db_error' }
       }
+
       orderId = orderInsert.id
     } catch {
       return { success: false, error: 'db_error' }
     }
 
-    // 4. Phase 2: batch the rest atomically (using orderId from phase 1)
     const stmts: D1PreparedStatement[] = []
 
-    // 4a. Deduct balance with concurrency guard
     stmts.push(
       db
         .prepare('UPDATE users SET balance = ?, updated_at = ? WHERE id = ? AND balance >= ?')
         .bind(balanceAfter, now, userId, totalAmount)
     )
 
-    // 4b. Mark each product as sold (link to known orderId)
     for (const product of availableProducts) {
       stmts.push(
         db
@@ -95,7 +89,6 @@ export class TransactionService {
       )
     }
 
-    // 4c. Insert order_items (using known orderId)
     for (const product of availableProducts) {
       stmts.push(
         db
@@ -106,7 +99,6 @@ export class TransactionService {
       )
     }
 
-    // 4d. Create transaction record (link to orderId)
     stmts.push(
       db
         .prepare(
@@ -130,29 +122,23 @@ export class TransactionService {
     try {
       results = await db.batch(stmts)
     } catch {
-      // Phase 2 failed — best-effort rollback the orphan order created in phase 1
       await db.prepare('DELETE FROM orders WHERE id = ?').bind(orderId).run().catch(() => {})
       return { success: false, error: 'db_error' }
     }
 
-    // 5. Verify concurrency guard — balance update must have affected 1 row
     if (results[0].meta.changes === 0) {
-      // Race: another purchase consumed balance. Rollback orphan order.
       await db.prepare('DELETE FROM orders WHERE id = ?').bind(orderId).run().catch(() => {})
       return { success: false, error: 'insufficient_balance' }
     }
 
-    // 6. Verify all product UPDATEs succeeded (1..quantity slots after balance update)
     for (let i = 1; i <= availableProducts.length; i++) {
       if (results[i].meta.changes === 0) {
-        // A product was sniped by a concurrent purchase. Best-effort cleanup.
         await db.prepare('DELETE FROM order_items WHERE order_id = ?').bind(orderId).run().catch(() => {})
         await db.prepare('DELETE FROM orders WHERE id = ?').bind(orderId).run().catch(() => {})
         return { success: false, error: 'insufficient_stock' }
       }
     }
 
-    // 7. Build response — fetch created order
     const order = await db
       .prepare('SELECT * FROM orders WHERE id = ?')
       .bind(orderId)
@@ -166,8 +152,8 @@ export class TransactionService {
   }
 
   /**
-   * Atomic deposit: add balance → update deposit status → create transaction.
-   * Uses D1 batch for atomicity. Verifies deposit was in 'pending' status.
+   * Deposit processing.
+   * Claim the pending deposit before crediting the user's balance.
    */
   async executeDeposit(
     db: D1Database,
@@ -178,12 +164,11 @@ export class TransactionService {
   ): Promise<DepositResult> {
     const now = new Date().toISOString()
 
-    // 1. Query current user balance and deposit status
     const [userResult, depositResult] = await Promise.all([
       db.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first<DbUser>(),
       db
-        .prepare('SELECT status FROM deposits WHERE id = ?')
-        .bind(depositId)
+        .prepare('SELECT status FROM deposits WHERE id = ? AND user_id = ?')
+        .bind(depositId, userId)
         .first<{ status: string }>(),
     ])
 
@@ -210,24 +195,25 @@ export class TransactionService {
     const balanceBefore = userResult.balance
     const balanceAfter = balanceBefore + amount
 
-    // 2. D1 batch — atomic operations
     const stmts: D1PreparedStatement[] = [
-      // 2a. Add balance
-      db
-        .prepare('UPDATE users SET balance = ?, updated_at = ? WHERE id = ?')
-        .bind(balanceAfter, now, userId),
-
-      // 2b. Update deposit status (concurrency guard: only if still pending)
+      // Claim deposit only once
       db
         .prepare(
-          "UPDATE deposits SET status = 'completed', sepay_transaction_id = ?, completed_at = ? WHERE id = ? AND status = 'pending'"
+          "UPDATE deposits SET status = 'completed', sepay_transaction_id = ?, completed_at = ? WHERE id = ? AND user_id = ? AND status = 'pending' AND sepay_transaction_id IS NULL"
         )
-        .bind(sepayTxId, now, depositId),
+        .bind(sepayTxId, now, depositId, userId),
 
-      // 2c. Create transaction record
+      // Credit balance only if this transaction successfully claimed the deposit
       db
         .prepare(
-          'INSERT INTO transactions (user_id, type, amount, balance_before, balance_after, reference_type, reference_id, description, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'UPDATE users SET balance = balance + ?, updated_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM deposits WHERE id = ? AND user_id = ? AND status = \'completed\' AND sepay_transaction_id = ?)'
+        )
+        .bind(amount, now, userId, depositId, userId, sepayTxId),
+
+      // Insert history only when the deposit was claimed
+      db
+        .prepare(
+          "INSERT INTO transactions (user_id, type, amount, balance_before, balance_after, reference_type, reference_id, description, status, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM deposits WHERE id = ? AND user_id = ? AND status = 'completed' AND sepay_transaction_id = ?)"
         )
         .bind(
           userId,
@@ -239,20 +225,28 @@ export class TransactionService {
           depositId,
           `Nạp ${amount.toLocaleString('vi-VN')}đ`,
           'success',
-          now
+          now,
+          depositId,
+          userId,
+          sepayTxId
         ),
     ]
 
     let results: D1Result[]
     try {
       results = await db.batch(stmts)
-    } catch {
+    } catch (err) {
+      console.error('[Deposit] D1 batch failed:', err)
       return { success: false, error: 'db_error' }
     }
 
-    // 3. Verify deposit update affected rows (was truly in 'pending' state)
-    if (results[1].meta.changes === 0) {
+    if (results[0].meta.changes === 0) {
       return { success: false, error: 'already_processed' }
+    }
+
+    if (results[1].meta.changes === 0) {
+      console.error('[Deposit] Deposit claimed but balance update failed:', depositId)
+      return { success: false, error: 'db_error' }
     }
 
     return {
@@ -263,3 +257,5 @@ export class TransactionService {
 }
 
 export const transactionService = new TransactionService()
+
+
