@@ -183,7 +183,44 @@ productRoutes.post('/import', async (c) => {
     JSON.stringify({ imported, duplicates: duplicates.length, errors: errors.length }),
     new Date().toISOString()
   ).run()
+  let notificationsSent = 0
+  let notificationsFailed = 0
 
+  if (imported > 0) {
+    try {
+      const users = await c.env.DB.prepare(
+        'SELECT telegram_id FROM users WHERE is_active = 1'
+      ).all<{ telegram_id: string }>()
+
+      for (const user of users.results ?? []) {
+        try {
+          const response = await fetch(
+            `https://api.telegram.org/bot${c.env.BOT_TOKEN}/sendMessage`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: user.telegram_id,
+                text: `📦 Shop vừa cập nhật ${imported} sản phẩm mới. Hãy vào bot để xem nhé!`,
+              }),
+            }
+          )
+
+          const result = await response.json() as { ok: boolean }
+
+          if (result.ok) {
+            notificationsSent++
+          } else {
+            notificationsFailed++
+          }
+        } catch {
+          notificationsFailed++
+        }
+      }
+    } catch (error) {
+      console.error('Telegram notification error:', error)
+    }
+  }
   return c.json({
     success: true,
     data: { imported, duplicates, errors },
